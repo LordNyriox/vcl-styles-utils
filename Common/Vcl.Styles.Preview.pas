@@ -129,8 +129,10 @@ begin
       end;
 
     if (FBitmap <> nil) then FreeAndNil(FBitmap);
+    {>>>
     if (FStyle  <> nil) then FreeAndNil(FStyle);
     if (FStyle  <> nil) then FreeAndNil(FStyle);
+    <<<}
   finally
     inherited Destroy;
   end;
@@ -146,8 +148,7 @@ end;
 
 procedure TVisualStylePreview.SetStyle(const aStyle: TCustomStyleServices);
 begin
-  if (FStyle <> nil) then FreeAndNil(FStyle);
-
+  //>>>if (FStyle <> nil) then FreeAndNil(FStyle);<<<
   FStyle := aStyle;
   Refresh;
 end;

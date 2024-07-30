@@ -63,11 +63,15 @@ type
     destructor Destroy; override;
   end;
 
+function IsDarkStyle(const aStyle: TCustomStyleServices): Boolean;
+
 implementation
 
 uses
+  Vcl.Graphics,
   Vcl.Controls,
-  System.SysUtils;
+  System.SysUtils,
+  Vcl.Styles.Ext;
 
 const
   VCLStylesMenu = WM_USER + 666;
@@ -165,15 +169,77 @@ begin
   FMethodsDict.Clear;
 end;
 
+
+procedure RGBtoHSL(rgb : TRGBTriple; var H, S, L : extended);
+var
+	delta, r, g, b, cmax, cmin: extended;
+begin
+	r := rgb.rgbtRed / 255;
+	g := rgb.rgbtGreen / 255;
+	b := rgb.rgbtBlue / 255;
+	if (r > b) and (r > g) then
+		cmax := r
+	else if g > b then
+		cmax := g
+	else
+		cmax := b;
+	if (r < b) and (r < g) then
+		cmin := r
+	else if g < b then
+		cmin := g
+	else
+		cmin := b;
+	L := (cmax+cmin) / 2.0;
+
+	if cmax=cmin then begin
+		S := 0;
+		H := 0;
+  end else begin
+		delta := cmax - cmin;
+		if L <= 0.5 then
+			s := delta / (cmax + cmin)
+		else
+			s := delta / (2.0 - cmax - cmin);
+		if r = cmax then
+			H := (g - b) / delta
+		else if g = cmax then
+			H := 2.0 + (b - r) / delta
+		else
+			H := 4.0 + (r - g) / delta;
+		H := H / 6.0;
+		if H < 0 then
+			H := H + 1;
+		end;
+end;
+
+function ColRefToRGBTriple(aCol: TColorRef): TRGBTriple;
+begin
+	Result.rgbtRed := (ACol shr 16) and $000000FF;
+	Result.rgbtGreen := (ACol shr 8) and $000000FF;
+	Result.rgbtBlue := ACol and $000000FF;
+end;
+
+function IsDarkStyle(const aStyle: TCustomStyleServices): Boolean;
+var
+  H, S, BkL, TxL: extended;
+begin
+  RGBtoHSL(ColRefToRGBTriple(aStyle.ColorToRGB(clWindow)), H, S, BkL);
+  RGBtoHSL(ColRefToRGBTriple(aStyle.ColorToRGB(clWindowText)), H, S, TxL);;
+  Result := BkL < TxL;
+end;
+
 procedure TVclStylesSystemMenu.CreateMenuStyles;
 var
-  LSysMenu: HMenu;
-  LMenuItem: TMenuItemInfo;
-  uIDNewItem, LSubMenuIndex: Integer;
-  LMethodInfo: TMethodInfo;
-  s: string;
-  LStyleNames: TArray<string>;
-
+ LSysMenu : HMenu;
+ LMenuItem: TMenuItemInfo;
+ uIDNewItem, LSubMenuIndex : Integer;
+ LMethodInfo : TMethodInfo;
+ s : string;
+ LStyleNames: TArray<string>;
+ IsDark, IsSystem: Boolean;
+ Style : TCustomStyleServices;
+ InsertedSomething: Boolean;
+ NeedSeperator : Boolean;
 begin
   LSysMenu := GetSystemMenu(FForm.Handle, False);
 
@@ -199,29 +265,43 @@ begin
   LStyleNames := TStyleManager.StyleNames;
   TArray.Sort<String>(LStyleNames);
 
-  for s in LStyleNames do
-  begin
+  NeedSeperator := False;
+  for IsSystem := FShowNativeStyle downto False do
+    for IsDark := False to True do begin
+      InsertedSomething := False;
+      for s in LStyleNames do begin
+        Style := TStyleManager.Style[s];
+        if not Assigned(Style) then
+          Continue;
 
-    if not FShowNativeStyle and SameText('Windows', s) then
-      Continue;
+        if IsSystem <> Style.IsSystemStyle then
+          Continue;
+        if IsDark <> IsDarkStyle(Style) then
+          Continue;
 
-    InsertMenuHelper(FVCLStylesMenu, LSubMenuIndex, uIDNewItem, PChar(s), nil);
-    if SameText(TStyleManager.ActiveStyle.Name, s) then
-      CheckMenuItem(FVCLStylesMenu, LSubMenuIndex, MF_BYPOSITION or MF_CHECKED);
+        InsertMenuHelper(FVCLStylesMenu, LSubMenuIndex, uIDNewItem,  PChar(s), nil);
+        if SameText(TStyleManager.ActiveStyle.Name, s) then
+          CheckMenuItem(FVCLStylesMenu, LSubMenuIndex, MF_BYPOSITION or MF_CHECKED);
 
-    if SameText('Windows', s) then
-      AddMenuSeparatorHelper(FVCLStylesMenu, LSubMenuIndex);
+        if NeedSeperator then begin
+          AddMenuSeparatorHelper(FVCLStylesMenu,  LSubMenuIndex);
+          NeedSeperator := False;
+        end;
+        InsertedSomething := True;
 
-    inc(LSubMenuIndex);
-    inc(uIDNewItem);
-    LMethodInfo := TMethodInfo.Create;
-    LMethodInfo.Value1 := s;
-    LMethodInfo.Method := procedure(Info: TMethodInfo)
-      begin
-        TStyleManager.SetStyle(Info.Value1.AsString);
+        inc(LSubMenuIndex);
+        inc(uIDNewItem);
+        LMethodInfo:=TMethodInfo.Create;
+        LMethodInfo.Value1:=s;
+        LMethodInfo.Method:=procedure(Info : TMethodInfo)
+                            begin
+                              TStyleManager.SetStyle(Info.Value1.AsString);
+                            end;
+        FMethodsDict.Add(uIDNewItem-1, LMethodInfo);
       end;
-    FMethodsDict.Add(uIDNewItem - 1, LMethodInfo);
-  end;
+      if InsertedSomething then
+        NeedSeperator := True;
+    end;
 end;
 
 procedure TVclStylesSystemMenu.WndProc(var Message: TMessage);
